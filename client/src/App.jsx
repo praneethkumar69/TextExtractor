@@ -6,6 +6,7 @@ import ProgressBar from './components/ProgressBar';
 import ResultsView from './components/ResultsView';
 import ApiKeyModal from './components/ApiKeyModal';
 import { AlertTriangle, Sparkles, FileText, CheckCircle2, RefreshCw, Zap, ShieldCheck } from 'lucide-react';
+import { createWorker } from 'tesseract.js';
 
 export default function App() {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -59,14 +60,45 @@ export default function App() {
         formData.append('customApiKey', apiKey);
       }
 
+      const isImage = !selectedFile.name.toLowerCase().endsWith('.pdf');
+
+      // If uploading an image without a custom Gemini API key, perform fast client-side OCR in the browser
+      if (isImage && !apiKey) {
+        try {
+          setCurrentStage(2);
+          const worker = await createWorker('eng');
+          const ret = await worker.recognize(selectedFile);
+          await worker.terminate();
+          if (ret && ret.data && ret.data.text && ret.data.text.trim().length > 5) {
+            formData.append('clientExtractedText', ret.data.text.trim());
+          }
+        } catch (ocrErr) {
+          console.warn('[Client OCR Error]:', ocrErr);
+        }
+      }
+
       // Simulate stage 2 & 3 transitions for visual feedback
       setTimeout(() => setCurrentStage(2), 800);
       setTimeout(() => setCurrentStage(3), 2000);
 
-      const response = await fetch('/api/process', {
-        method: 'POST',
-        body: formData
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+      let response;
+      try {
+        response = await fetch('/api/process', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal
+        });
+      } catch (fetchErr) {
+        if (fetchErr.name === 'AbortError') {
+          throw new Error('Processing timed out on Vercel. Please set your Gemini API key in the top right header for instant high-speed AI processing.');
+        }
+        throw fetchErr;
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       let data;
       const contentType = response.headers.get('content-type');
@@ -159,7 +191,7 @@ export default function App() {
 
         {/* Results Dashboard or Upload Controls */}
         {status === 'success' && results ? (
-          <ResultsView data={results} onReset={handleReset} />
+          <ResultsView data={results} apiKey={apiKey} onReset={handleReset} />
         ) : (
           <div className="space-y-8">
             <UploadBox
@@ -180,25 +212,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Unthinkable Style "Trusted By" Partner Banner */}
-        {status === 'idle' && !results && (
-          <div className="pt-12 pb-6 border-t border-slate-200/60 space-y-6 text-center animate-fade-in">
-            <p className="text-xs font-extrabold uppercase tracking-widest text-slate-400">
-              Trusted By
-            </p>
-            <h3 className="text-2xl font-serif text-[#22c55e] font-normal">
-              100+ Global Startups and Enterprises
-            </h3>
-            
-            <div className="flex flex-wrap items-center justify-center gap-8 sm:gap-12 opacity-70 grayscale hover:grayscale-0 transition-all pt-2">
-              <span className="font-extrabold text-base tracking-tighter text-slate-800 font-mono">foodstories</span>
-              <span className="font-extrabold text-base tracking-tight text-slate-900 font-serif">VRX LABS</span>
-              <span className="font-black text-sm tracking-widest text-slate-800 uppercase">LIBERTY LEATHERS</span>
-              <span className="font-black text-xl tracking-tighter text-blue-600">olx</span>
-              <span className="font-bold text-base text-rose-500 font-sans">CONTINUA</span>
-            </div>
-          </div>
-        )}
+
 
       </main>
 

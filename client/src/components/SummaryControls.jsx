@@ -14,20 +14,20 @@ export default function SummaryControls({
     {
       id: 'short',
       label: 'Short',
-      desc: '1-2 Paragraphs (~100 words)',
-      badge: 'Executive'
+      desc: '1 Brief Paragraph (~75 words), 2-3 Key Points',
+      badge: 'Quick Snapshot'
     },
     {
       id: 'medium',
       label: 'Medium',
-      desc: '3-4 Paragraphs (~250 words)',
+      desc: '2-3 Balanced Paragraphs (~200 words), 4-5 Key Points',
       badge: 'Recommended'
     },
     {
       id: 'long',
       label: 'Long',
-      desc: 'Detailed Breakdown (~500 words)',
-      badge: 'In-Depth'
+      desc: '4-6 Detailed Paragraphs (~500 words), 6-8 Key Points',
+      badge: 'Deep Dive'
     }
   ];
 

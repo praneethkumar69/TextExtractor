@@ -10,8 +10,8 @@ Built as part of the Software Engineer technical assessment.
 
 | Resource | Link |
 |---|---|
-| 🌐 Live Application | `[Add your deployed URL here]` |
-| 💻 GitHub Repository | `[Add your repo URL here]` |
+| 🌐 Live Application | https://text-extractor-blond.vercel.app |
+| 💻 GitHub Repository | https://github.com/praneethkumar69/TextExtractor |
 | 🎥 Demo Video (optional) | `[Add a Loom/YouTube link here]` |
 
 ---

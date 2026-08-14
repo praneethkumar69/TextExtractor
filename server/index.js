@@ -4,10 +4,11 @@ import multer from 'multer';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import rateLimit from 'express-rate-limit';
 
 import { extractTextFromPDF } from './services/pdfExtractor.js';
-import { extractTextFromImage } from './services/ocrExtractor.js';
-import { generateSummary } from './services/summarizer.js';
+import { isPDFFile } from './utils/fileHelpers.js';
+import { generateSummary, generateSummaryFromImage } from './services/summarizer.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -18,12 +19,39 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Enable CORS and JSON parsing
-app.use(cors());
+// File size constant — avoids magic numbers
+const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+
+// CORS — restrict to known origins; falls back to localhost in development
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+  : ['http://localhost:3000', 'http://localhost:5173'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, Postman, same-origin)
+    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    callback(new Error('CORS: Request origin not permitted.'));
+  },
+  credentials: true
+}));
+
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// Configure Multer for file upload in memory
+// Rate limiting — 20 requests per minute per IP on all API routes
+const apiRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too Many Requests', message: 'Rate limit exceeded. Please wait before sending more requests.' }
+});
+app.use('/api/', apiRateLimiter);
+
+// Configure Multer for in-memory file upload
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
@@ -46,9 +74,7 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage,
-  limits: {
-    fileSize: 20 * 1024 * 1024 // 20MB max file size
-  },
+  limits: { fileSize: MAX_FILE_SIZE_BYTES },
   fileFilter
 });
 
@@ -62,85 +88,7 @@ app.get('/api/health', (req, res) => {
 });
 
 /**
- * Route: Extract text from document (PDF or Image)
- */
-app.post('/api/extract', upload.single('file'), async (req, res, next) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded', message: 'Please attach a document file.' });
-    }
-
-    const file = req.file;
-    const isPDF = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
-
-    let result;
-    const startTime = Date.now();
-
-    if (isPDF) {
-      result = await extractTextFromPDF(file.buffer);
-    } else {
-      result = await extractTextFromImage(file.buffer);
-    }
-
-    const processingTimeMs = Date.now() - startTime;
-
-    if (!result.text || result.text.length < 5) {
-      return res.status(422).json({
-        error: 'Extraction Warning',
-        message: 'Could not extract readable text from the uploaded file. Please ensure the document is clear and readable.',
-        text: result.text || '',
-        fileName: file.originalname,
-        fileSize: file.size,
-        mimeType: file.mimetype,
-        processingTimeMs
-      });
-    }
-
-    res.json({
-      success: true,
-      fileName: file.originalname,
-      fileSize: file.size,
-      mimeType: file.mimetype,
-      text: result.text,
-      numPages: result.numPages || 1,
-      extractionMethod: result.method,
-      confidence: result.confidence || null,
-      processingTimeMs,
-      stats: {
-        characterCount: result.text.length,
-        wordCount: result.text.trim().split(/\s+/).length
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-/**
- * Route: Generate Summary from text
- */
-app.post('/api/summarize', async (req, res, next) => {
-  try {
-    const { text, length = 'medium', customApiKey = '', userPrompt = '' } = req.body;
-
-    if (!text || text.trim().length === 0) {
-      return res.status(400).json({ error: 'Missing text', message: 'Text content is required for summarization.' });
-    }
-
-    const summaryResult = await generateSummary(text, length, customApiKey, userPrompt);
-
-    res.json({
-      success: true,
-      length,
-      ...summaryResult
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-/**
- * Convenience Route: Upload, Extract, and Summarize in one flow
+ * Route: Upload document (PDF or Image), extract text, and generate AI summary in one unified flow.
  */
 app.post('/api/process', upload.single('file'), async (req, res, next) => {
   try {
@@ -148,52 +96,76 @@ app.post('/api/process', upload.single('file'), async (req, res, next) => {
       return res.status(400).json({ error: 'No file uploaded', message: 'Please attach a document file.' });
     }
 
-    const { length = 'medium', customApiKey = '', userPrompt = '' } = req.body;
+    const {
+      length = 'medium',
+      customApiKey = '',
+      userPrompt = ''
+    } = req.body;
+
+    // Sanitize and clamp client-extracted text to prevent prompt injection
+    const clientExtractedText = String(req.body.clientExtractedText || '').trim().slice(0, 40000);
+
     const file = req.file;
-    const isPDF = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
+    const processStartTime = Date.now();
 
-    const extractStartTime = Date.now();
-    let extractResult;
+    let extractedText = '';
+    let extractionMethod = '';
+    let summaryResult;
 
-    if (isPDF) {
-      extractResult = await extractTextFromPDF(file.buffer);
+    if (isPDFFile(file)) {
+      const extractResult = await extractTextFromPDF(file.buffer);
+      extractedText = extractResult.text || '';
+      extractionMethod = extractResult.method;
+
+      if (extractedText.length < 5) {
+        return res.status(422).json({
+          error: 'Extraction Failed',
+          message: 'Could not extract sufficient text from the PDF document to generate a summary.'
+        });
+      }
+
+      summaryResult = await generateSummary(extractedText, length, customApiKey, userPrompt);
     } else {
-      extractResult = await extractTextFromImage(file.buffer);
+      // Image file upload (PNG, JPG, WEBP, BMP, TIFF)
+      if (clientExtractedText.length > 5) {
+        // Use client-side browser OCR result when available (avoids serverless Tesseract issues)
+        extractedText = clientExtractedText;
+        extractionMethod = 'tesseract-ocr-client';
+        summaryResult = await generateSummary(extractedText, length, customApiKey, userPrompt);
+      } else {
+        // Fall through to Gemini Vision multimodal API
+        summaryResult = await generateSummaryFromImage(file.buffer, file.mimetype, length, customApiKey, userPrompt);
+        extractedText = summaryResult.extractedText || '';
+        extractionMethod = summaryResult.method || 'gemini-vision';
+      }
     }
-    const extractTimeMs = Date.now() - extractStartTime;
 
-    const extractedText = extractResult.text || '';
-    if (extractedText.length < 5) {
-      return res.status(422).json({
-        error: 'Extraction Failed',
-        message: 'Could not extract sufficient text from the document to generate a summary.'
-      });
-    }
+    const totalTimeMs = Date.now() - processStartTime;
 
-    const summarizeStartTime = Date.now();
-    const summaryResult = await generateSummary(extractedText, length, customApiKey, userPrompt);
-    const summarizeTimeMs = Date.now() - summarizeStartTime;
+    const safeWordCount = extractedText.trim()
+      ? extractedText.trim().split(/\s+/).length
+      : 0;
 
     res.json({
       success: true,
       fileName: file.originalname,
       fileSize: file.size,
       mimeType: file.mimetype,
-      extractionMethod: extractResult.method,
+      length,
+      extractionMethod,
       extractedText,
-      numPages: extractResult.numPages || 1,
+      numPages: 1,
       stats: {
         characterCount: extractedText.length,
-        wordCount: extractedText.trim().split(/\s+/).length,
-        extractTimeMs,
-        summarizeTimeMs,
-        totalTimeMs: extractTimeMs + summarizeTimeMs
+        wordCount: safeWordCount,
+        totalTimeMs
       },
-      summary: summaryResult.summary,
-      keyPoints: summaryResult.keyPoints,
-      mainIdeas: summaryResult.mainIdeas,
-      improvementSuggestions: summaryResult.improvementSuggestions,
-      engine: summaryResult.engine,
+      summary: summaryResult.summary || '',
+      keyPoints: summaryResult.keyPoints || [],
+      mainIdeas: summaryResult.mainIdeas || [],
+      improvementSuggestions: summaryResult.improvementSuggestions || [],
+      engine: summaryResult.engine || 'DocuMind Engine',
+      isFallback: summaryResult.isFallback || false,
       errorNote: summaryResult.errorNote || null
     });
   } catch (error) {
@@ -201,26 +173,34 @@ app.post('/api/process', upload.single('file'), async (req, res, next) => {
   }
 });
 
-// Serve frontend in production if built client directory exists
-const clientDistPath = path.join(__dirname, '../client/dist');
-app.use(express.static(clientDistPath));
+// Serve frontend in local production mode (outside Vercel)
+if (!process.env.VERCEL) {
+  const clientDistPath = path.join(__dirname, '../client/dist');
+  app.use(express.static(clientDistPath));
 
-app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    return next();
-  }
-  res.sendFile(path.join(clientDistPath, 'index.html'), (err) => {
-    if (err) {
-      res.status(404).send('Document Summary Assistant API Server. Frontend not built yet.');
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
     }
+    res.sendFile(path.join(clientDistPath, 'index.html'), (err) => {
+      if (err) {
+        res.status(404).send('Document Summary Assistant API Server.');
+      }
+    });
   });
-});
+}
 
-// Attach Global Error Handler
+// Attach Global Error Handler (must be last middleware)
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+const isMainModule =
+  process.argv[1] &&
+  (process.argv[1].endsWith('server/index.js') || process.argv[1].endsWith('server/index'));
+
+if (!process.env.VERCEL && isMainModule) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  });
+}
 
 export default app;

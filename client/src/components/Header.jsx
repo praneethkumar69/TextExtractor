@@ -37,7 +37,7 @@ export default function Header({ onOpenApiKeyModal, apiKeyConfigured }) {
           </button>
 
           <a
-            href="https://github.com"
+            href="https://github.com/praneethkumar69/TextExtractor"
             target="_blank"
             rel="noopener noreferrer"
             className="p-2.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"

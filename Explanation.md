@@ -22,6 +22,7 @@ This guide breaks down **every single technology, library, technical term, and p
 4. ⚙️ [How the Entire Pipeline Works Step-by-Step](#4-how-the-entire-pipeline-works-step-by-step)
 5. 📥 [How File Downloads Work (.TXT Files)](#5-how-file-downloads-work-txt-files)
 6. 🚀 [How to Run & Test the Project](#6-how-to-run--test-the-project)
+7. ☁️ [How Serverless Deployment on Vercel Works](#7-how-serverless-deployment-on-vercel-works)
 
 ---
 
@@ -221,4 +222,21 @@ npm run dev
 
 ---
 
-*That's everything! DocuMind combines modern web frameworks (React, Express), optical character recognition (Tesseract), and artificial intelligence (Gemini) into one seamless, production-ready tool!* 🚀
+## 7. ☁️ How Serverless Deployment on Vercel Works
+
+### Local vs. Cloud Architecture
+
+| Feature | Local (`npm run dev`) | Cloud (Vercel Production) |
+|---|---|---|
+| **Server Model** | Traditional long-running Express server | On-Demand Serverless Functions (AWS Lambda / Vercel Edge) |
+| **Lifecycle** | `app.listen(5001)` runs 24/7 in background | Micro-container spins up only when an API request arrives |
+| **Resource Usage** | Continuous memory & CPU allocation | Zero resources consumed when idle |
+
+### How Vercel Handles API Requests
+1. **Entry Point (`/api/index.js`)**: Exports your Express `app` instance directly (`export default app`).
+2. **On-Demand Invocation**: When a client sends a request to `/api/process` or `/api/health`, Vercel invokes `api/index.js` in a lightweight micro-container in milliseconds.
+3. **Execution Guard**: The backend code checks `isMainModule` and `process.env.VERCEL` so `app.listen()` only executes locally, preventing port conflicts in serverless environments.
+
+---
+
+*That's everything! DocuMind combines modern web frameworks (React, Express), optical character recognition (Tesseract), artificial intelligence (Gemini), and modern serverless deployment (Vercel) into one seamless, production-ready tool!* 🚀
