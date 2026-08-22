@@ -63,6 +63,29 @@ app.get('/api/health', (req, res) => {
 });
 
 /**
+ * Route: Standalone Summarization from text (used by UI re-summarize toolbar)
+ */
+app.post('/api/summarize', async (req, res, next) => {
+  try {
+    const { text = '', length = 'medium', customApiKey = '', userPrompt = '' } = req.body;
+
+    if (!text || text.trim().length === 0) {
+      return res.status(400).json({ error: 'Missing text', message: 'Text content is required for summarization.' });
+    }
+
+    const summaryResult = await generateSummary(text, length, customApiKey, userPrompt);
+
+    res.json({
+      success: true,
+      length,
+      ...summaryResult
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Route: Upload document (PDF or Image), extract text, and generate AI summary in one unified flow.
  */
 app.post('/api/process', upload.single('file'), async (req, res, next) => {

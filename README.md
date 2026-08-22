@@ -12,7 +12,6 @@ Built as part of the Software Engineer technical assessment.
 |---|---|
 | 🌐 Live Application | https://text-extractor-blond.vercel.app |
 | 💻 GitHub Repository | https://github.com/praneethkumar69/TextExtractor |
-| 🎥 Demo Video (optional) | `[Add a Loom/YouTube link here]` |
 
 ---
 
@@ -168,9 +167,7 @@ The app will be available at `http://localhost:3000`.
 
 ---
 
-## ✍️ Approach Write-up (for submission, ~200 words)
-
-> Copy this into your submission email/form.
+## ✍️ Approach 
 
 I approached this as a two-stage pipeline: **extraction** and **summarization**, kept intentionally decoupled so each stage is easy to test, swap, or improve independently. On the frontend, I built a simple drag-and-drop uploader with clear loading states for each phase (uploading, extracting, summarizing) so the user is never left guessing. On the backend, PDFs are parsed directly to preserve structure, while scanned images go through an OCR pipeline (Tesseract) to extract text. The extracted text is cleaned and chunked before being sent to a free-tier summarization API, with a length parameter controlling whether the output is short, medium, or long. I prioritized graceful error handling — invalid files, failed OCR, and API errors all return specific, actionable messages rather than silent failures. Given the 8-hour time constraint, I focused on a working, reliable core pipeline over extra features, keeping the codebase clean and documented so it's easy to extend later (multi-language OCR, batch uploads, export options). The result is a lightweight, mobile-responsive tool that turns any document into a digestible summary in a few seconds.
 
