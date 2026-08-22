@@ -4,7 +4,6 @@ import multer from 'multer';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import rateLimit from 'express-rate-limit';
 
 import { extractTextFromPDF } from './services/pdfExtractor.js';
 import { isPDFFile } from './utils/fileHelpers.js';
@@ -22,34 +21,10 @@ const PORT = process.env.PORT || 5001;
 // File size constant — avoids magic numbers
 const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 
-// CORS — restrict to known origins; falls back to localhost in development
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
-  : ['http://localhost:3000', 'http://localhost:5173'];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (curl, Postman, same-origin)
-    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-      return callback(null, true);
-    }
-    callback(new Error('CORS: Request origin not permitted.'));
-  },
-  credentials: true
-}));
-
+// Enable CORS and JSON parsing
+app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
-
-// Rate limiting — 20 requests per minute per IP on all API routes
-const apiRateLimiter = rateLimit({
-  windowMs: 60_000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too Many Requests', message: 'Rate limit exceeded. Please wait before sending more requests.' }
-});
-app.use('/api/', apiRateLimiter);
 
 // Configure Multer for in-memory file upload
 const storage = multer.memoryStorage();
