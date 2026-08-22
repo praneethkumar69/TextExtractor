@@ -168,11 +168,7 @@ if (!process.env.VERCEL) {
 // Attach Global Error Handler (must be last middleware)
 app.use(errorHandler);
 
-const isMainModule =
-  process.argv[1] &&
-  (process.argv[1].endsWith('server/index.js') || process.argv[1].endsWith('server/index'));
-
-if (!process.env.VERCEL && isMainModule) {
+if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
   });
